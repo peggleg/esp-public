@@ -26,9 +26,6 @@ wifi:
   ssid: !secret iot_wifi_ssid
   password: !secret iot_wifi_password
 
-web_server:
-  port: 80
-
 spi:
   clk_pin: GPIO7
   mosi_pin: GPIO16
