@@ -26,7 +26,6 @@ wifi:
 spi:
   clk_pin: GPIO7   # SCL/SCLK
   mosi_pin: GPIO16  # SDA/MOSI
-  # miso_pin not needed for display-only
 
 font:
   - file: "fonts/arial.ttf"

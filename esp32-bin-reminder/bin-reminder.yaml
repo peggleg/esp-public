@@ -1,0 +1,186 @@
+esphome:
+  name: "bin-reminder"
+  friendly_name: Bin Reminder
+
+esp32:
+  board: esp32-c6-devkitm-1
+  framework:
+    type: esp-idf
+
+logger:
+  level: INFO
+
+api:
+  encryption:
+    key: "abc"
+  on_client_connected:
+    then:
+      - delay: 2s
+      - component.update: st7789v_display
+
+ota:
+  - platform: esphome
+    password: "abc"
+
+wifi:
+  ssid: !secret iot_wifi_ssid
+  password: !secret iot_wifi_password
+
+web_server:
+  port: 80
+
+spi:
+  clk_pin: GPIO7
+  mosi_pin: GPIO16
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+    timezone: "Europe/London"
+
+text_sensor:
+  - platform: homeassistant
+    id: next_general_waste_collection
+    entity_id: sensor.general_waste
+    internal: true
+    on_value:
+      then:
+        - component.update: st7789v_display
+    
+  - platform: homeassistant
+    id: next_recycling_collection
+    entity_id: sensor.mixed_recycling
+    internal: true
+    on_value:
+      then:
+        - component.update: st7789v_display
+
+font:
+  - file: "fonts/NotoSans-Regular.ttf"
+    id: my_font
+    size: 30
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~°µ³²"
+
+image:
+  - file: "images/general-waste.png"
+    id: general_waste_bin
+    type: RGB565
+    resize: 80x80
+    transparency: chroma_key
+
+  - file: "images/recycling.png"
+    id: recycling_bin
+    type: RGB565
+    resize: 80x80
+    transparency: chroma_key
+
+
+display:
+  - platform: st7789v
+    id: st7789v_display
+    model: CUSTOM
+    cs_pin: GPIO14
+    dc_pin: GPIO19
+    reset_pin: GPIO20
+    backlight_pin: GPIO18
+    rotation: 0
+    width: 240
+    height: 240
+    offset_width: 0
+    offset_height: 0
+    update_interval: 360min
+    pages:
+      - id: normal_page
+        lambda: |-
+          ESPTime now = id(homeassistant_time).now();
+          if (!now.is_valid()) {
+            it.fill(Color::BLACK);
+            it.printf(120, 100, id(my_font), Color(255, 0, 0), TextAlign::TOP_CENTER, "Time not synced!");
+            return;
+          }
+
+          const char* next_bin_type = nullptr;
+          image::Image *next_bin_image = nullptr;
+          int days_until_next_bin = 9999;
+          Color next_bin_color = Color::BLACK;
+
+          // Process General Waste
+          std::string general_waste_state = id(next_general_waste_collection).state;
+          if (!general_waste_state.empty() && general_waste_state != "unavailable" && general_waste_state != "unknown") {
+            int days_until = -1;
+            int days_found;
+            if (general_waste_state == "Today") {
+              days_until = 0;
+            } else if (general_waste_state == "Tomorrow") {
+              days_until = 1;
+            } else if (sscanf(general_waste_state.c_str(), "in %d day", &days_found) == 1) {
+              days_until = days_found;
+            } else {
+              int year, month, day;
+              if (sscanf(general_waste_state.c_str(), "%d-%d-%d", &year, &month, &day) == 3) {
+                ESPTime bin_time;
+                bin_time.year = year;
+                bin_time.month = month;
+                bin_time.day_of_month = day;
+                uint32_t now_ts = now.timestamp;
+                uint32_t bin_ts = bin_time.timestamp;
+                days_until = (bin_ts - now_ts) / (60 * 60 * 24);
+              }
+            }
+            if (days_until != -1 && days_until >= 0 && days_until < days_until_next_bin) {
+              days_until_next_bin = days_until;
+              next_bin_type = "General Waste";
+              next_bin_image = id(general_waste_bin);
+              next_bin_color = Color(139, 69, 19);
+            }
+          }
+
+          // Process Recycling
+          std::string recycling_state = id(next_recycling_collection).state;
+          if (!recycling_state.empty() && recycling_state != "unavailable" && recycling_state != "unknown") {
+            int days_until = -1;
+            int days_found;
+            if (recycling_state == "Today") {
+              days_until = 0;
+            } else if (recycling_state == "Tomorrow") {
+              days_until = 1;
+            } else if (sscanf(recycling_state.c_str(), "in %d day", &days_found) == 1) {
+              days_until = days_found;
+            } else {
+              int year, month, day;
+              if (sscanf(recycling_state.c_str(), "%d-%d-%d", &year, &month, &day) == 3) {
+                ESPTime bin_time;
+                bin_time.year = year;
+                bin_time.month = month;
+                bin_time.day_of_month = day;
+                uint32_t now_ts = now.timestamp;
+                uint32_t bin_ts = bin_time.timestamp;
+                days_until = (bin_ts - now_ts) / (60 * 60 * 24);
+              }
+            }
+            if (days_until != -1 && days_until >= 0 && days_until < days_until_next_bin) {
+              days_until_next_bin = days_until;
+              next_bin_type = "Recycling";
+              next_bin_image = id(recycling_bin);
+              next_bin_color = Color(0, 150, 0);
+            }
+          }
+          
+          if (next_bin_type != nullptr && days_until_next_bin <= 7) {
+            it.fill(next_bin_color);
+            
+            it.image(120 - next_bin_image->get_width()/2, 25, next_bin_image);
+            it.printf(120, 120, id(my_font), Color::WHITE, TextAlign::TOP_CENTER, "%s", next_bin_type);
+
+            if (days_until_next_bin == 0) {
+              it.printf(120, 160, id(my_font), Color::WHITE, TextAlign::TOP_CENTER, "Today!");
+            } else if (days_until_next_bin == 1) {
+              it.printf(120, 160, id(my_font), Color::WHITE, TextAlign::TOP_CENTER, "Tomorrow!");
+            } else {
+              it.printf(120, 160, id(my_font), Color::WHITE, TextAlign::TOP_CENTER, "In %d days", days_until_next_bin);
+            }
+          } else {
+            it.fill(Color::BLACK);
+            it.printf(120, 120, id(my_font), Color::WHITE, TextAlign::TOP_CENTER, "No Collection");
+            it.printf(120, 160, id(my_font), Color(128, 128, 128), TextAlign::TOP_CENTER, "Next 7 Days");
+          }
