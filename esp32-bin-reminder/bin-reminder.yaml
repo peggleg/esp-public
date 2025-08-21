@@ -163,7 +163,7 @@ display:
             }
           }
           
-          if (next_bin_type != nullptr && days_until_next_bin <= 7) {
+          if (next_bin_type != nullptr && days_until_next_bin <= 8) {
             it.fill(next_bin_color);
             
             it.image(120 - next_bin_image->get_width()/2, 25, next_bin_image);
